@@ -1,0 +1,6 @@
+apihook.lib
+irgss_rb.h
+*.obj
+*.exe
+*.idb
+*.ilk
