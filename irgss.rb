@@ -1,10 +1,25 @@
-puts "Success"
-puts RUBY_VERSION
-puts $RGSS_SCRIPTS[0][1].length
-#(Kernel.method(:msgbox) rescue Kernel.method(:print)).call("兰兰大坏蛋")
+::IRGSS::TOP_BINDING = binding
 
-a = Sprite.new
-a.bitmap = Bitmap.new(640, 480)
-a.bitmap.font.name = "Segoe UI"
-a.bitmap.draw_text(0,0,640,480,"玖爷是个大坏蛋")
-loop do Graphics.update end
+RUBY_DESCRIPTION = "ruby #{RUBY_VERSION rescue nil}#{RUBY_PATCHLEVEL_STR rescue nil} (#{RUBY_RELEASE_DATE rescue nil}#{RUBY_REVISION_STR rescue nil}) [#{RUBY_PLATFORM rescue nil}]" unless (RUBY_DESCRIPTION rescue nil)
+
+if ::IRGSS::PLATFORM == "RGSS1" || ::IRGSS::PLATFORM == "RGSS2"
+  module Kernel
+    def self.p *args; STDOUT.p *args; end
+    def self.print *args; STDOUT.print *args; end
+  end
+  class Object
+    def p *args; STDOUT.p *args; end
+    def print *args; STDOUT.print *args; end
+  end
+end
+
+STDOUT.print <<EOF
+iRGSS @ #{::IRGSS::PLATFORM} @ #{RUBY_DESCRIPTION}
+EOF
+
+begin
+  require 'irb'
+  IRB.start
+rescue Exception
+  IRGSS.exception_inspect $!
+end

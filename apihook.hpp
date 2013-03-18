@@ -3,6 +3,8 @@
 class CApiHook 
 {
 public:
+	BOOL Initialized;
+	BOOL Status;
 	HANDLE hProc;
 	void Unlock();
 	void Lock();

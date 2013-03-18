@@ -43,3 +43,5 @@ clean:
     $(rm) irgss.exe $(rmpost)
     $(rm) vc90.idb $(rmpost)
     $(rm) irgss.ilk $(rmpost)
+
+rebuild: clean all

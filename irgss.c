@@ -21,17 +21,41 @@ static apihook hookCreateFileW;
 static apihook hookReadFile;
 static apihook hookCloseHandle;
 static apihook hookGetFileType;
+static apihook hookSetWindowPos;
+static apihook hookShowWindow;
+static apihook hookMessageBoxW;
+static apihook hookSetForegroundWindow;
 static apihook hookEnumFontFamiliesExW;
 
 #define verbose(...) do if (verbose_flag) { printf("%s: ", argv0); puts(#__VA_ARGS__); } while(0)
 #define verbosef(...) do if (verbose_flag) { printf("%s: ", argv0); printf(__VA_ARGS__); } while(0)
 #define error(...) do fprintf(stderr, "%s: %s", argv0, #__VA_ARGS__); while(0)
 #define oassert(k, ...) do if (!(k)) { error(__VA_ARGS__); exit(1);} while(0)
-
+#define hookon(proc) do { \
+	                     verbose(hook: enabling: ##proc); \
+                         apihook_on(hook##proc); \
+                        } while(0)
+#define hookoff(proc) do { \
+	                      verbose(hook: disabling: ##proc); \
+                          apihook_off(hook##proc); \
+                         } while(0)
+#define hookons(proc) do { \
+                         apihook_on(hook##proc); \
+                        } while(0)
+#define hookoffs(proc) do { \
+                          apihook_off(hook##proc); \
+                         } while(0)
 typedef void   (*RGSSInitialize)(HMODULE hRgssDll);
 typedef void   (*RGSSGameMain)(HWND hWnd, const char* pScriptNames, char** pRgssadName);
+typedef int    (*RGSSEval)(const char* pScripts);
+
+static HMODULE hrgss = NULL;
+static RGSSInitialize frgssInitialize = NULL;
+static RGSSGameMain frgssGameMain = NULL;
+static RGSSEval frgssEval = NULL;
 
 typedef struct {
+	char* filename;
 	int pos;
 	char* content;
 	int size;
@@ -91,8 +115,19 @@ findpath(const char * fname, char **out, int maxlen)
 	return 0;
 }
 
+LRESULT
+WINAPI rgsswindowwndproc(HWND hWnd,UINT Msg,WPARAM wParam,LPARAM lParam)
+{
+	if (Msg == WM_ACTIVATEAPP)
+	{
+		return 0;
+	}
+	
+	return DefWindowProc(hWnd, Msg, wParam, lParam);
+}
+
 HWND
-creatergsswindow(const char* classname, const char* title, int sw, int sh, int hide)
+creatergsswindow(const wchar_t* classname, const wchar_t* title, int sw, int sh, int hide)
 {
 	int width, height;
 	RECT rt;
@@ -101,7 +136,7 @@ creatergsswindow(const char* classname, const char* title, int sw, int sh, int h
 	DWORD dwStyle;
 
 	winclass.style = CS_DBLCLKS | CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
-	winclass.lpfnWndProc = DefWindowProc;
+	winclass.lpfnWndProc = rgsswindowwndproc;
 	winclass.cbClsExtra   = 0;
 	winclass.cbWndExtra   = 0;
 	winclass.hInstance   = 0;
@@ -111,7 +146,7 @@ creatergsswindow(const char* classname, const char* title, int sw, int sh, int h
 	winclass.lpszMenuName = NULL;
 	winclass.lpszClassName = classname;
 
-	if (!RegisterClassA(&winclass))
+	if (!RegisterClassW(&winclass))
 	{
 		error(failed to register class);
 		exit(1);
@@ -134,9 +169,9 @@ creatergsswindow(const char* classname, const char* title, int sw, int sh, int h
 	rt.right = rt.left + width;
 	rt.bottom = rt.top + height;
 
-	dwStyle = (WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE);
+	dwStyle = (WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX);
 
-	hWnd = CreateWindowExA(WS_EX_WINDOWEDGE, classname, title, dwStyle,
+	hWnd = CreateWindowExW(WS_EX_WINDOWEDGE, classname, title, dwStyle,
 	   rt.left, rt.top, rt.right - rt.left, rt.bottom - rt.top, 0, 0, 0, 0);
 	if (!hWnd)
 	{
@@ -163,23 +198,98 @@ HANDLE
 
 	if (lstrcmp(lpFileName,L":scripts")==0)
 	{
+		char* code;
 		hookedfilehandle* f = calloc(sizeof(hookedfilehandle), 1);
+		f->filename = ":scripts";
 		f->content = irgss_scripts;
 		f->size = sizeof(irgss_scripts);
 		f->pos = 0;
 		
+		verbose(hook hit: CreateFileW: loading RGSS scripts...);
+		
+		verbose(stopping windows hooks...);
+		hookoff(SetWindowPos);
+		hookoff(ShowWindow);
+		hookoff(SetForegroundWindow);
+		if (rgssversion == 3)
+			hookoff(EnumFontFamiliesExW);
+		
+		verbose(loading iRGSS header scripts...);
+		frgssEval(irgss_header);
+		
+		verbose(loading iRGSS settings...);
+		sprintf(code, "::IRGSS::PLATFORM = 'RGSS%d'", rgssversion);
+		frgssEval(code);
+		
 		orzlist_prepend(hookedfiles, (void*)f, (void*)f);
-		verbosef("hook hit: CreateFileW: hookedfilehandle: %d\n", (int)f);
+		verbosef("hook hit: CreateFileW: hookedfilehandle: %d, filename: %s\n", (int)f, f->filename);
 		
 		return (HANDLE)f;
 	}
 
-	apihook_off(hookCreateFileW);
+	hookoffs(CreateFileW);
 	ret = CreateFileW(lpFileName,dwDesiredAccess,dwShareMode,lpSecurityAttributes,dwCreationDisposition,dwFlagsAndAttributes,hTemplateFile);
-	apihook_on(hookCreateFileW);
+	hookons(CreateFileW);
 	return ret;
 }
 
+BOOL
+WINAPI
+hookfSetWindowPos(
+    __in HWND hWnd,
+    __in_opt HWND hWndInsertAfter,
+    __in int X,
+    __in int Y,
+    __in int cx,
+    __in int cy,
+    __in UINT uFlags)
+{
+	verbose(hook hit: SetWindowPos: ignoring...);
+	return 0;
+}
+
+BOOL
+WINAPI
+hookfSetForegroundWindow(
+    __in HWND hWnd)
+{
+	verbose(hook hit: SetForegroundWindow: ignoring);
+	return 0;
+}
+
+BOOL
+WINAPI
+hookfShowWindow(
+    __in HWND hWnd,
+    __in int nCmdShow)
+{
+	verbose(hook hit: ShowWindow: ignoring);
+	return 0;
+}
+
+int
+WINAPI
+hookfMessageBoxW(
+    __in_opt HWND hWnd,
+    __in_opt LPCWSTR lpText,
+    __in_opt LPCWSTR lpCaption,
+    __in UINT uType)
+{
+	int choice = 1;
+	if ((uType & 0xF) == 0) {
+		verbose(hook hit: MessageBoxW: so simple, so redirect to STDOUT);
+		wprintf(L"[%s]\n%s\n", lpCaption, lpText);
+		choice = 1;
+	}
+	else
+	{
+		hookoffs(MessageBoxW);
+		choice = MessageBoxW(0, lpText, lpCaption, uType);
+		hookons(MessageBoxW);
+	}
+	
+	return choice;
+}
 
 BOOL WINAPI hookfReadFile(
 	HANDLE hFile, 
@@ -194,7 +304,7 @@ BOOL WINAPI hookfReadFile(
 	{
 		hookedfilehandle* f = (hookedfilehandle*)hFile;
 		int count;
-		verbosef("hook hit: ReadFile: hookedfilehandle: %d, pos: %d, size: %d\n", (int)f, f->pos, f->size);
+		verbosef("hook hit: ReadFile: hookedfilehandle: %d, filename: %s, pos: %d, size: %d\n", (int)f, f->filename, f->pos, f->size);
 		verbosef("hook hit: ReadFile: nNumberOfBytesToRead: %d\n", nNumberOfBytesToRead);
 		count = f->size - f->pos;
 		if (count > nNumberOfBytesToRead)
@@ -218,27 +328,38 @@ BOOL WINAPI hookfReadFile(
 	else
 	{
 		BOOL ret;
-		apihook_off(hookReadFile);
+		hookoffs(ReadFile);
 		ret=ReadFile(hFile,lpBuffer,nNumberOfBytesToRead,lpNumberOfBytesRead,lpOverlapped);
-		apihook_on(hookReadFile);
+		hookons(ReadFile);
 		return ret;
-	}
+	}\
 }
 
 BOOL WINAPI hookfCloseHandle(HANDLE h)
 {
 	if (orzlist_get(hookedfiles, (void*)h) == h)
 	{
-		verbosef("hook hit: CloseHandle: hookedfilehandle: %d\n", (int)h);
+		hookedfilehandle* f = (hookedfilehandle*)h;
+		verbosef("hook hit: CloseHandle: hookedfilehandle: %d, filename: %s\n", (int)f, f->filename);
 		orzlist_remove(hookedfiles, (void*)h);
+		
+		if (f->content == irgss_scripts)
+		{
+			verbose(hook hit: CloseHandle: RGSS scripts loaded);
+			verbose(stopping file hooks);
+			hookoff(CreateFileW);
+	        hookoff(ReadFile);
+	        hookoff(CloseHandle);
+	        hookoff(GetFileType);
+		}
 		return TRUE;
 	}
 	else
 	{
 		BOOL ret;
-		apihook_off(hookCloseHandle);
+		hookoffs(CloseHandle);
 		ret=CloseHandle(h);
-		apihook_on(hookCloseHandle);
+		hookons(CloseHandle);
 		return ret;
 	}
 }
@@ -258,7 +379,7 @@ int
 	TEXTMETRICW* lpntme;
 	
 	verbose(hook hit: EnumFontFamiliesExW: enter);
-	apihook_off(hookEnumFontFamiliesExW);
+	hookoffs(EnumFontFamiliesExW);
 	
 	lpelfe = calloc(sizeof(LOGFONTW), 1);
 	lpntme = calloc(sizeof(TEXTMETRICW), 1);
@@ -277,7 +398,7 @@ done:
 	free(lpelfe);
 	free(lpntme);
 	
-	apihook_on(hookEnumFontFamiliesExW);
+	hookons(EnumFontFamiliesExW);
 	verbose(hook hit: EnumFontFamiliesExW: leave);
 	return ret;
 }
@@ -293,9 +414,9 @@ DWORD
 		return FILE_TYPE_CHAR;
 	}
 	
-	apihook_off(hookGetFileType);
+	hookoffs(GetFileType);
 	ret=GetFileType(hFile);
-	apihook_on(hookGetFileType);
+	hookons(GetFileType);
 	return ret;
 }
 
@@ -400,11 +521,9 @@ main (int argc, char **argv)
 	}
 	
 	{
-		HMODULE hrgss = LoadLibraryA(lib_flag);
-		RGSSInitialize frgssInitialize = NULL;
-		RGSSGameMain frgssGameMain = NULL;
 		HWND hWnd;
 		
+		hrgss = LoadLibraryA(lib_flag);
 		oassert(hrgss, failed to initialize lib);
 		verbose(lib initialized);
 		
@@ -436,22 +555,42 @@ foundrgss:
 		frgssGameMain = (RGSSGameMain) GetProcAddress(hrgss, "RGSSGameMain");
 		oassert(frgssGameMain, failed to find RGSSGameMain);
 		
+		verbose(looking for RGSSEval);
+		frgssEval = (RGSSEval) GetProcAddress(hrgss, "RGSSEval");
+		oassert(frgssEval, failed to find RGSSEval);
+		
 		verbose(calling RGSSInitialize);
 		frgssInitialize(hrgss);
 		
 		verbose(creating game window for RGSS);
-		hWnd = creatergsswindow("iRGSS", "iRGSS", 640, 480, screen_flag);
+		switch (rgssversion)
+		{
+			case 1:
+				hWnd = creatergsswindow(L"RGSS Player", L"iRGSS1", 640, 480, screen_flag);
+				break;
+			case 2:
+				hWnd = creatergsswindow(L"RGSS2 Player", L"iRGSS2", 544, 416, screen_flag);
+				break;
+			case 3:
+				hWnd = creatergsswindow(L"RGSS3 Player", L"iRGSS3", 544, 416, screen_flag);
+				break;
+			
+		}
 		
 		verbose(setting hook);
 		hookedfiles = orzlist_create();
 		#define sethook(lib, proc) do { \
 			                           hook##proc = apihook_initialize(lib,#proc,(FARPROC)hookf##proc); \
-			                           apihook_on(hook##proc); \
+			                           hookon(##proc); \
                                       } while(0)
         sethook(L"kernel32.dll", CreateFileW);
         sethook(L"kernel32.dll", ReadFile);
         sethook(L"kernel32.dll", CloseHandle);
         sethook(L"kernel32.dll", GetFileType);
+        sethook(L"user32.dll", ShowWindow);
+        sethook(L"user32.dll", SetWindowPos);
+        sethook(L"user32.dll", SetForegroundWindow);
+        sethook(L"user32.dll", MessageBoxW);
         if (rgssversion == 3)
 			sethook(L"gdi32.dll", EnumFontFamiliesExW);
 		
@@ -460,9 +599,7 @@ foundrgss:
 			frgssGameMain(hWnd, ":scripts", "\0\0\0\0");
 		else
 			frgssGameMain(hWnd, ":\0s\0c\0r\0i\0p\0t\0s\0\0", "\0\0\0\0");
-		
-		// open "scripts", "wb" do |io| io.write Marshal.dump [[0,"iRGSS Initialize", Zlib::Deflate.deflate("eval((open('love.txt', 'rb') do |i| i.read end), binding, 'love.txt')")]] end
-		//ShowWindow(hWnd, SW_HIDE);
+
 	}
 	//{char* j;gets(&j);}
 	
