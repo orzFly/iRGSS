@@ -3,7 +3,7 @@ cc=cl
 link=link
 ruby=ruby
 
-cflags=/nologo /W3 /EHsc /O2 /D "NDEBUG" /D "WIN32" /D "UNICODE" /D "_CONSOLE" /FD /c 
+cflags=/nologo /W3 /EHsc /O2 /Ox /D "NDEBUG" /D "WIN32" /D "UNICODE" /D "_CONSOLE" /FD /c 
 lflags=apihook.lib kernel32.lib shell32.lib user32.lib gdi32.lib /nologo /subsystem:console /incremental:yes /machine:I386 /out:irgss.exe
 
 all: irgss.exe

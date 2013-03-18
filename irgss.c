@@ -21,6 +21,7 @@ static apihook hookCreateFileW;
 static apihook hookReadFile;
 static apihook hookCloseHandle;
 static apihook hookGetFileType;
+static apihook hookEnumFontFamiliesExW;
 
 #define verbose(...) do if (verbose_flag) { printf("%s: ", argv0); puts(#__VA_ARGS__); } while(0)
 #define verbosef(...) do if (verbose_flag) { printf("%s: ", argv0); printf(__VA_ARGS__); } while(0)
@@ -229,6 +230,7 @@ BOOL WINAPI hookfCloseHandle(HANDLE h)
 	if (orzlist_get(hookedfiles, (void*)h) == h)
 	{
 		verbosef("hook hit: CloseHandle: hookedfilehandle: %d\n", (int)h);
+		orzlist_remove(hookedfiles, (void*)h);
 		return TRUE;
 	}
 	else
@@ -239,6 +241,45 @@ BOOL WINAPI hookfCloseHandle(HANDLE h)
 		apihook_on(hookCloseHandle);
 		return ret;
 	}
+}
+
+int
+	WINAPI
+	hookfEnumFontFamiliesExW(
+		__in HDC hdc, 
+		__in LPLOGFONTW lpLogfont, 
+		__in FONTENUMPROCW lpProc, 
+		__in LPARAM lParam, 
+		__in DWORD dwFlags
+	)
+{
+	int ret;
+	LOGFONTW* lpelfe;
+	TEXTMETRICW* lpntme;
+	
+	verbose(hook hit: EnumFontFamiliesExW: enter);
+	apihook_off(hookEnumFontFamiliesExW);
+	
+	lpelfe = calloc(sizeof(LOGFONTW), 1);
+	lpntme = calloc(sizeof(TEXTMETRICW), 1);
+	
+	verbose(hook hit: EnumFontFamiliesExW: fake VL Gothic);
+	wcscpy(lpelfe->lfFaceName, L"VL Gothic");
+	if (!lpProc(lpelfe, lpntme, TRUETYPE_FONTTYPE, lParam)) goto done;
+	
+	verbose(hook hit: EnumFontFamiliesExW: fake VL PGothic);
+	wcscpy(lpelfe->lfFaceName, L"VL PGothic");
+	if (!lpProc(lpelfe, lpntme, TRUETYPE_FONTTYPE, lParam)) goto done;
+	
+	verbose(hook hit: EnumFontFamiliesExW: back to real world);
+	ret = EnumFontFamiliesExW(hdc, lpLogfont, lpProc, lParam, dwFlags);
+done:
+	free(lpelfe);
+	free(lpntme);
+	
+	apihook_on(hookEnumFontFamiliesExW);
+	verbose(hook hit: EnumFontFamiliesExW: leave);
+	return ret;
 }
 
 DWORD
@@ -334,7 +375,7 @@ main (int argc, char **argv)
 		verbose(cannot find it here);
 		verbose(searching in PATH);
 		
-		if (findpath(lib_flag, path, MAX_PATH))
+		if (findpath(lib_flag, &path, MAX_PATH))
 		{
 			lib_flag = path;
 			verbosef("lib = %s\n", lib_flag);
@@ -411,6 +452,8 @@ foundrgss:
         sethook(L"kernel32.dll", ReadFile);
         sethook(L"kernel32.dll", CloseHandle);
         sethook(L"kernel32.dll", GetFileType);
+        if (rgssversion == 3)
+			sethook(L"gdi32.dll", EnumFontFamiliesExW);
 		
 		verbose(calling RGSSGameMain);
 		if (rgssversion < 2)
