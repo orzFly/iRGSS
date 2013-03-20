@@ -5,7 +5,7 @@ require 'zlib'
 libs = {}
 Dir.chdir("irgss_lib")
 Dir['**/*.rb'].each { |i|
-  libs[i] = [(open(i, 'rb') do |io| io.read end)].pack("m*").gsub!("\n", "")
+  libs[i] = [Zlib::Deflate.deflate(open(i, 'rb') do |io| io.read end)].pack("m*").gsub!("\n", "")
 }
 Dir.chdir("..")
 lib = libs.keys.map{ |i|
@@ -44,7 +44,7 @@ class << ::Kernel
   alias irgss_load     load
 
   def irgss_extract_eval(filename)
-    eval(::IRGSS::LIB[filename].unpack('m')[0], ::IRGSS::TOP_BINDING, ":irgss_lib/#{filename}")
+    eval(Zlib::Inflate.inflate(::IRGSS::LIB[filename].unpack('m')[0]), ::IRGSS::TOP_BINDING, ":irgss_lib/#{filename}")
   end
 
   def load(filename)
