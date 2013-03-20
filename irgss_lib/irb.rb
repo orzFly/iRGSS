@@ -9,7 +9,7 @@
 #
 #
 #
-#require "e2mmap"
+require "e2mmap"
 
 require "irb/init"
 require "irb/context"
@@ -20,7 +20,7 @@ require "irb/ruby-lex"
 require "irb/input-method"
 require "irb/locale"
 
-#STDOUT.sync = true
+STDOUT.sync = true
 
 module IRB
   @RCS_ID='-$Id: irb.rb 24483 2009-08-09 08:44:15Z shyouhei $-'

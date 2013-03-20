@@ -17,8 +17,12 @@ module ::IRGSS; end
 eval <<'EOF', binding, 'iRGSS Header'
 ::IRGSS::REQUIRED = {}
 ::IRGSS::LIB = {}
+::IRGSS::VERBOSE = 0
 
 class << ::IRGSS
+  def verbose j
+    puts "irgss: rgss: " << j if IRGSS::VERBOSE == 1
+  end
   def exception_inspect e
     puts $!
     puts $!.backtrace
@@ -29,6 +33,7 @@ class ::Object
   def load filename
     Kernel.load filename
   end
+  
   def require filename
     Kernel.require filename
   end
@@ -39,26 +44,30 @@ class << ::Kernel
   alias irgss_load     load
 
   def irgss_extract_eval(filename)
-    eval ::IRGSS::LIB[filename].unpack('m')[0], ::IRGSS::TOP_BINDING, ":irgss_lib/#{filename}"
+    eval(::IRGSS::LIB[filename].unpack('m')[0], ::IRGSS::TOP_BINDING, ":irgss_lib/#{filename}")
   end
 
   def load(filename)
     if ::IRGSS::LIB.include? filename
        irgss_extract_eval(filename) 
+       true
     elsif ::IRGSS::LIB.include?(filename + ".rb")
        irgss_extract_eval(filename + ".rb") 
+       true
     else
        irgss_load(filename)
     end
   end
 
   def require(filename)
-    return nil if ::IRGSS::REQUIRED.include? filename
+    return false if ::IRGSS::REQUIRED.include? filename
     ::IRGSS::REQUIRED[filename] = true
     if ::IRGSS::LIB.include? filename
        irgss_extract_eval(filename)
+       true
     elsif ::IRGSS::LIB.include?(filename + ".rb")
        irgss_extract_eval(filename+".rb")
+       true
     else
        irgss_require(filename)
     end

@@ -2,6 +2,7 @@
 #include "apihook.h"
 #include "irgss_rb.h"
 #include "orzlist.h"
+#include <locale.h>
 #include <windows.h>
 #include <stdio.h>
 #include <tchar.h>
@@ -198,7 +199,7 @@ HANDLE
 
 	if (lstrcmp(lpFileName,L":scripts")==0)
 	{
-		char* code;
+		char* code[1000];
 		hookedfilehandle* f = calloc(sizeof(hookedfilehandle), 1);
 		f->filename = ":scripts";
 		f->content = irgss_scripts;
@@ -218,7 +219,7 @@ HANDLE
 		frgssEval(irgss_header);
 		
 		verbose(loading iRGSS settings...);
-		sprintf(code, "::IRGSS::PLATFORM = 'RGSS%d'", rgssversion);
+		sprintf(code, "::IRGSS::TOP_BINDING = binding; ::IRGSS::VERBOSE = %d; ::IRGSS::PLATFORM = 'RGSS%d'", verbose_flag, rgssversion);
 		frgssEval(code);
 		
 		orzlist_prepend(hookedfiles, (void*)f, (void*)f);
@@ -278,7 +279,7 @@ hookfMessageBoxW(
 	int choice = 1;
 	if ((uType & 0xF) == 0) {
 		verbose(hook hit: MessageBoxW: so simple, so redirect to STDOUT);
-		wprintf(L"[%s]\n%s\n", lpCaption, lpText);
+		wprintf(L"[%ls]\n%ls\n", lpCaption, lpText);
 		choice = 1;
 	}
 	else
@@ -425,6 +426,8 @@ main (int argc, char **argv)
 {
 	int c;
 	argv0 = argv[0];
+	
+	_wsetlocale(LC_ALL, L"chs");
 
 	while (1)
  	{
