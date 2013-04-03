@@ -18,6 +18,7 @@ eval <<'EOF', binding, 'iRGSS Header'
 ::IRGSS::REQUIRED = {}
 ::IRGSS::LIB = {}
 ::IRGSS::VERBOSE = 0
+::IRGSS::VAR = {}
 
 class << ::IRGSS
   def verbose j

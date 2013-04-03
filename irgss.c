@@ -2,6 +2,7 @@
 #include "apihook.h"
 #include "irgss_rb.h"
 #include "orzlist.h"
+#include "orzstr.h"
 #include <locale.h>
 #include <windows.h>
 #include <stdio.h>
@@ -11,12 +12,15 @@ extern "C" {
 #endif
 
 static char* argv0;
-static int verbose_flag;
-static int debug_flag;
 static int rgssversion;
-static char* eval_flag;
-static char* lib_flag;
-static int screen_flag;
+static char* libname;
+static orzsb* code_settings;
+static orzsb* code_eval;
+
+static int flag_verbose;
+static int flag_debug;
+static char* flag_eval;
+static int flag_screen;
 
 static apihook hookCreateFileW;
 static apihook hookReadFile;
@@ -28,8 +32,8 @@ static apihook hookMessageBoxW;
 static apihook hookSetForegroundWindow;
 static apihook hookEnumFontFamiliesExW;
 
-#define verbose(...) do if (verbose_flag) { printf("%s: ", argv0); puts(#__VA_ARGS__); } while(0)
-#define verbosef(...) do if (verbose_flag) { printf("%s: ", argv0); printf(__VA_ARGS__); } while(0)
+#define verbose(...) do if (flag_verbose) { printf("%s: ", argv0); puts(#__VA_ARGS__); } while(0)
+#define verbosef(...) do if (flag_verbose) { printf("%s: ", argv0); printf(__VA_ARGS__); } while(0)
 #define error(...) do fprintf(stderr, "%s: %s", argv0, #__VA_ARGS__); while(0)
 #define oassert(k, ...) do if (!(k)) { error(__VA_ARGS__); exit(1);} while(0)
 #define hookon(proc) do { \
@@ -199,7 +203,7 @@ HANDLE
 
 	if (lstrcmp(lpFileName,L":scripts")==0)
 	{
-		char* code[1000];
+		char* code;
 		hookedfilehandle* f = calloc(sizeof(hookedfilehandle), 1);
 		f->filename = ":scripts";
 		f->content = irgss_scripts;
@@ -219,8 +223,18 @@ HANDLE
 		frgssEval(irgss_header);
 		
 		verbose(loading iRGSS settings...);
-		sprintf(code, "::IRGSS::TOP_BINDING = binding; ::IRGSS::VERBOSE = %d; ::IRGSS::PLATFORM = 'RGSS%d'", verbose_flag, rgssversion);
+		
+		code = orzsb_build(code_settings);
+		if (flag_verbose){
+			puts("```ruby");
+			puts(code);
+			puts("```");
+		}
 		frgssEval(code);
+		
+		free(code);
+		orzsb_clean(code_settings);
+		free(code_settings);
 		
 		orzlist_prepend(hookedfiles, (void*)f, (void*)f);
 		verbosef("hook hit: CreateFileW: hookedfilehandle: %d, filename: %s\n", (int)f, f->filename);
@@ -426,15 +440,22 @@ main (int argc, char **argv)
 {
 	int c;
 	argv0 = argv[0];
-	
-	_wsetlocale(LC_ALL, L"chs");
+	code_settings = orzsb_create();
+	orzsb_puts(code_settings, "::IRGSS::TOP_BINDING = binding");
 
+	_wsetlocale(LC_ALL, L"chs");
+	
 	while (1)
  	{
 		static struct option long_options[] =
 		{
-			{"verbose", no_argument,       &verbose_flag, 1},
-			{"brief",   no_argument,       &verbose_flag, 0},
+			{"verbose", no_argument,       &flag_verbose, 1},
+			{"brief",   no_argument,       &flag_verbose, 0},
+			
+			{"irb-math",	no_argument, 0, 'm'},
+			{"irb-inspect",	no_argument, 0, 2001},
+			{"irb-noinspect",	no_argument, 0, 2002},
+			{"irb-name",	required_argument, 0, 2003},
 			
 			{"debug",   no_argument,       0, 'd'},
 			{"screen",  no_argument,       0, 's'},
@@ -446,7 +467,7 @@ main (int argc, char **argv)
 
 		int option_index = 0;
 		
-		c = getopt_long (argc, argv, "sde:", long_options, &option_index);
+		c = getopt_long (argc, argv, "sde:m", long_options, &option_index);
 		
 		if (c == -1)
 			break;
@@ -457,11 +478,11 @@ main (int argc, char **argv)
 				break;
 
 			case 'd':
-				debug_flag = 1;
+				flag_debug = 1;
 				break;
 
 			case 'e':
-				eval_flag = optarg;
+				flag_eval = optarg;
 				break;
 
 			case '?':
@@ -469,28 +490,41 @@ main (int argc, char **argv)
 				break;
 
 			case 's':
-				screen_flag = 1;
+				flag_screen = 1;
 				break;
+			
+			case 'm':	orzsb_puts(code_settings, "(::IRGSS::VAR[:irb_argv] ||=[]) << '-m'"); break;
+			case 2001:	orzsb_puts(code_settings, "(::IRGSS::VAR[:irb_argv] ||=[]) << '--inspect'"); break;
+			case 2002:	orzsb_puts(code_settings, "(::IRGSS::VAR[:irb_argv] ||=[]) << '--noinspect'"); break;
+			case 2003:
+			{
+				char* escaped = addslash(optarg);
+				orzsb_printf(code_settings, "::IRGSS::VAR[:irb_name] = '%s'\n", escaped);
+				free(escaped);
+				break;
+			}
 				
 			default:
 				abort();
 		}
 	}
+	
+	orzsb_printf(code_settings, "::IRGSS::VERBOSE = %d\n", flag_verbose);
 
 	if (optind < argc)
 	{
 		while (optind < argc)
 		{
-			lib_flag = argv[optind++];
+			libname = argv[optind++];
 		}
 	}
 	
-	if (!lib_flag)
-		lib_flag = "RGSS300.dll";
+	if (!libname)
+		libname = "RGSS300.dll";
 	
-	verbosef("lib = %s\n", lib_flag);
+	verbosef("lib = %s\n", libname);
 	
-	if( exists( lib_flag ) ) {
+	if( exists( libname ) ) {
 		verbose(lib is exist);
 	}
 	else
@@ -499,24 +533,24 @@ main (int argc, char **argv)
 		verbose(cannot find it here);
 		verbose(searching in PATH);
 		
-		if (findpath(lib_flag, &path, MAX_PATH))
+		if (findpath(libname, &path, MAX_PATH))
 		{
-			lib_flag = path;
-			verbosef("lib = %s\n", lib_flag);
-			if( exists( lib_flag ) ) {
+			libname = path;
+			verbosef("lib = %s\n", libname);
+			if( exists( libname ) ) {
 				verbose(lib is exist);
 			}
 			else
 			{
-				lib_flag = 0;
+				libname = 0;
 			}
 		}
 		else
 		{
-			lib_flag = 0;
+			libname = 0;
 		}
 		
-		if (!lib_flag)
+		if (!libname)
 		{
 			error(lib not found);
 			exit(1);
@@ -526,7 +560,7 @@ main (int argc, char **argv)
 	{
 		HWND hWnd;
 		
-		hrgss = LoadLibraryA(lib_flag);
+		hrgss = LoadLibraryA(libname);
 		oassert(hrgss, failed to initialize lib);
 		verbose(lib initialized);
 		
@@ -554,6 +588,14 @@ main (int argc, char **argv)
 		}
 		oassert(frgssInitialize, failed to find RGSSInitialize);
 foundrgss:
+		{
+			char* escaped = addslash(libname);
+			orzsb_printf(code_settings, "::IRGSS::LIBNAME = '%s'\n", escaped);
+			free(escaped);
+		}
+		orzsb_printf(code_settings, "::IRGSS::PLATFORM = 'RGSS%d'\n", rgssversion);
+		orzsb_puts(code_settings, "::IRGSS::IRBNAME = ::IRGSS::VAR[:irb_name] || File.basename(::IRGSS::LIBNAME, '.dll')");
+
 		verbose(looking for RGSSGameMain);
 		frgssGameMain = (RGSSGameMain) GetProcAddress(hrgss, "RGSSGameMain");
 		oassert(frgssGameMain, failed to find RGSSGameMain);
@@ -569,13 +611,13 @@ foundrgss:
 		switch (rgssversion)
 		{
 			case 1:
-				hWnd = creatergsswindow(L"RGSS Player", L"iRGSS1", 640, 480, screen_flag);
+				hWnd = creatergsswindow(L"RGSS Player", L"iRGSS1", 640, 480, flag_screen);
 				break;
 			case 2:
-				hWnd = creatergsswindow(L"RGSS2 Player", L"iRGSS2", 544, 416, screen_flag);
+				hWnd = creatergsswindow(L"RGSS2 Player", L"iRGSS2", 544, 416, flag_screen);
 				break;
 			case 3:
-				hWnd = creatergsswindow(L"RGSS3 Player", L"iRGSS3", 544, 416, screen_flag);
+				hWnd = creatergsswindow(L"RGSS3 Player", L"iRGSS3", 544, 416, flag_screen);
 				break;
 			
 		}
@@ -608,8 +650,6 @@ foundrgss:
 	
 	exit (0);
 }
-
-
 
 
 #ifdef	__cplusplus

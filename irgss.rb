@@ -17,5 +17,14 @@ iRGSS @ #{::IRGSS::PLATFORM} @ #{RUBY_DESCRIPTION}
 EOF
 
   require 'irb'
+  class << IRB
+    alias init_config_irgss init_config
+    def init_config(*args)
+      init_config_irgss(*args)
+      @CONF[:IRB_NAME] = ::IRGSS::IRBNAME
+      @CONF[:SINGLE_IRB] = true
+    end
+  end
+  
   IRB.start
 end

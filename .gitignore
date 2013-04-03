@@ -4,3 +4,5 @@ irgss_rb.h
 *.exe
 *.idb
 *.ilk
+*.pdb
+irgss.suo
