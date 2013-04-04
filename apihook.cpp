@@ -20,7 +20,7 @@ CApiHook ::~ CApiHook ()
 
 void CApiHook :: SetHookOn ( void )
 {
-	DWORD dwOldFlag ;
+	//DWORD dwOldFlag ;
 	if ( WriteProcessMemory ( hProc , m_lpHookFunc , m_NewFunc , 5 , 0 ))
 	{
 		return ;
@@ -30,7 +30,7 @@ void CApiHook :: SetHookOn ( void )
 
 void CApiHook :: SetHookOff ( void )
 {
-	DWORD dwOldFlag ;
+	//DWORD dwOldFlag ;
 	if ( WriteProcessMemory ( hProc , m_lpHookFunc , m_OldFunc , 5 , 0 ))
 	{
 		return ;
@@ -51,7 +51,7 @@ BOOL CApiHook :: Initialize ( LPCWSTR lpLibFileName , LPCSTR lpProcName , FARPRO
 		return FALSE ;
 
 	DWORD dwProcessID = GetCurrentProcessId ();
-	DWORD dwOldFlag ;
+	//DWORD dwOldFlag ;
 	hProc = GetCurrentProcess ( /*OPEN_FLAGS,0,dwProcessID*/ );
 
 	if ( hProc == NULL )

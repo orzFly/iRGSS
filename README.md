@@ -29,6 +29,11 @@ irgss [options] [-] [library names]
 ```
 * `options` stand for any combination of the following options
 * Only one library name is allowed without `-a`
+* `library name` can be one of the following
+  * `:rgss`
+  * `:rgss1`
+  * `:rgss2`
+  * `:rgss3`
 
 Options
 -------
@@ -96,6 +101,9 @@ Omit `--disable-screen-wndproc`
 #### -m, --irb-math
 Bc mode (load mathn, fraction or matrix are available)
 
+#### --irb-norc
+Suppress read of `~/.irbrc`
+
 #### --irb-name `name`
 Specify `IRGSS.IRBNAME`, which is passed to IRB. 
 
@@ -104,6 +112,9 @@ Use `inspect' for output (default except for bc mode)
 
 #### --irb-noinspect
 Don't use inspect for output
+
+#### --irb-echo
+#### --irb-noecho
 
 #### --irb-prompt `prompt-mode`, --irb-prompt-mode `prompt-mode`
 Switch prompt mode. Pre-defined prompt modes are
@@ -115,7 +126,7 @@ Switch prompt mode. Pre-defined prompt modes are
 #### --irb-inf-ruby-mode
 Use prompt appropriate for inf-ruby-mode on emacs. 
 
-#### --irb-simple-prompt
+#### --irb-sample-book-mode, --irb-simple-prompt
 Simple prompt mode
 
 #### --irb-noprompt
@@ -127,7 +138,10 @@ Display trace for each execution of commands.
 #### --irb-back-trace-limit `n`
 Display backtrace top n and tail n. The default value is 16.
 
-#### --irb-internal-debug `n`
+#### --irb-context-mode `n`
+#### --irb-single
+
+#### --irb-debug `n`
 Set internal debug level to n (not for popular use)
 
 ### RGSS Settings
@@ -167,6 +181,8 @@ Omit `--disable-registry-hook`.
 ### Other Options
 #### -v, --verbose
 Turn on debug messages. 
+
+#### --no-logo
 
 #### -c `fname`, --rc `fname`
 By default, IRGSS will parse `.irgssrc` for options before parsing the command line. IRGSS will find this file at following paths. If any of above hit, IRGSS will load it and stop finding.

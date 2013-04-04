@@ -13,6 +13,7 @@ extern "C" {
 
 static char* argv0;
 static int rgssversion;
+static int rgssinit;
 static char* libname;
 static orzsb* code_settings;
 static orzsb* code_eval;
@@ -34,7 +35,7 @@ static apihook hookEnumFontFamiliesExW;
 
 #define verbose(...) do if (flag_verbose) { printf("%s: ", argv0); puts(#__VA_ARGS__); } while(0)
 #define verbosef(...) do if (flag_verbose) { printf("%s: ", argv0); printf(__VA_ARGS__); } while(0)
-#define error(...) do fprintf(stderr, "%s: %s", argv0, #__VA_ARGS__); while(0)
+#define error(...) do fprintf(stderr, "%s: %s\n", argv0, #__VA_ARGS__); while(0)
 #define oassert(k, ...) do if (!(k)) { error(__VA_ARGS__); exit(1);} while(0)
 #define hookon(proc) do { \
 	                     verbose(hook: enabling: ##proc); \
@@ -51,7 +52,7 @@ static apihook hookEnumFontFamiliesExW;
                           apihook_off(hook##proc); \
                          } while(0)
 typedef void   (*RGSSInitialize)(HMODULE hRgssDll);
-typedef void   (*RGSSGameMain)(HWND hWnd, const char* pScriptNames, char** pRgssadName);
+typedef void   (*RGSSGameMain)(HWND hWnd, const char* pScriptNames, char* pRgssadName);
 typedef int    (*RGSSEval)(const char* pScripts);
 
 static HMODULE hrgss = NULL;
@@ -62,7 +63,7 @@ static RGSSEval frgssEval = NULL;
 typedef struct {
 	char* filename;
 	int pos;
-	char* content;
+	const char* content;
 	int size;
 } hookedfilehandle;
 
@@ -80,8 +81,8 @@ exists(const char *fname)
 	return 0;
 }
 
-int
-findpath(const char * fname, char **out, int maxlen)
+char*
+findpath(const char * fname)
 {
 	char *s = getenv("path"), *str, *p, *buf, *pp;
 	int len = strlen(s);
@@ -101,14 +102,10 @@ findpath(const char * fname, char **out, int maxlen)
 		
 		if (exists(pp))
 		{
-			int ret = strlen(pp);
-			strncpy(out, pp, maxlen);
-			
-			free(pp);
 			free(buf);
 			
-			verbosef("findpath: hit %s\n", out);
-			return ret;
+			verbosef("findpath: hit %s\n", pp);
+			return pp;
 		}
 		
 		free(pp);
@@ -136,7 +133,7 @@ creatergsswindow(const wchar_t* classname, const wchar_t* title, int sw, int sh,
 {
 	int width, height;
 	RECT rt;
-	WNDCLASSA winclass;
+	WNDCLASSW winclass;
 	HWND hWnd;
 	DWORD dwStyle;
 
@@ -210,31 +207,35 @@ HANDLE
 		f->size = sizeof(irgss_scripts);
 		f->pos = 0;
 		
-		verbose(hook hit: CreateFileW: loading RGSS scripts...);
-		
-		verbose(stopping windows hooks...);
-		hookoff(SetWindowPos);
-		hookoff(ShowWindow);
-		hookoff(SetForegroundWindow);
-		if (rgssversion == 3)
-			hookoff(EnumFontFamiliesExW);
-		
-		verbose(loading iRGSS header scripts...);
-		frgssEval(irgss_header);
-		
-		verbose(loading iRGSS settings...);
-		
-		code = orzsb_build(code_settings);
-		if (flag_verbose){
-			puts("```ruby");
-			puts(code);
-			puts("```");
+		if (rgssinit == FALSE)
+		{
+			verbose(hook hit: CreateFileW: loading RGSS scripts...);
+			verbose(stopping windows hooks...);
+			hookoff(SetWindowPos);
+			hookoff(ShowWindow);
+			hookoff(SetForegroundWindow);
+			if (rgssversion == 3)
+				hookoff(EnumFontFamiliesExW);
+			
+			verbose(loading iRGSS header scripts...);
+			frgssEval(irgss_header);
+			
+			verbose(loading iRGSS settings...);
+			
+			code = orzsb_build(code_settings);
+			if (flag_verbose){
+				puts("```ruby");
+				puts(code);
+				puts("```");
+			}
+			frgssEval(code);
+			
+			free(code);
+			orzsb_clean(code_settings);
+			free(code_settings);
+			
+			rgssinit = 233;
 		}
-		frgssEval(code);
-		
-		free(code);
-		orzsb_clean(code_settings);
-		free(code_settings);
 		
 		orzlist_prepend(hookedfiles, (void*)f, (void*)f);
 		verbosef("hook hit: CreateFileW: hookedfilehandle: %d, filename: %s\n", (int)f, f->filename);
@@ -318,7 +319,7 @@ BOOL WINAPI hookfReadFile(
 	if (orzlist_get(hookedfiles, (void*)hFile) == hFile)
 	{
 		hookedfilehandle* f = (hookedfilehandle*)hFile;
-		int count;
+		unsigned int count;
 		verbosef("hook hit: ReadFile: hookedfilehandle: %d, filename: %s, pos: %d, size: %d\n", (int)f, f->filename, f->pos, f->size);
 		verbosef("hook hit: ReadFile: nNumberOfBytesToRead: %d\n", nNumberOfBytesToRead);
 		count = f->size - f->pos;
@@ -358,8 +359,9 @@ BOOL WINAPI hookfCloseHandle(HANDLE h)
 		verbosef("hook hit: CloseHandle: hookedfilehandle: %d, filename: %s\n", (int)f, f->filename);
 		orzlist_remove(hookedfiles, (void*)h);
 		
-		if (f->content == irgss_scripts)
+		if (f->content == irgss_scripts && rgssinit == 233)
 		{
+			rgssinit = TRUE;
 			verbose(hook hit: CloseHandle: RGSS scripts loaded);
 			verbose(stopping file hooks);
 			hookoff(CreateFileW);
@@ -435,42 +437,62 @@ DWORD
 	return ret;
 }
 
-int
-main (int argc, char **argv)
+static struct option long_options[] =
+{
+	{"verbose", no_argument,       &flag_verbose, 1},
+	{"brief",   no_argument,       &flag_verbose, 0},
+	
+	{"require",			required_argument, 	0, 'r'},
+	
+	{"irb-math",		no_argument, 		0, 'm'},
+	{"irb-inspect",		no_argument, 		0, 2001},
+	{"irb-noinspect",	no_argument, 		0, 2002},
+	{"irb-name",		required_argument, 	0, 2003},
+	{"irb-echo",		no_argument, 		0, 2004},
+	{"irb-noecho",		no_argument, 		0, 2005},
+	{"irb-norc",		no_argument, 		0, 2006},
+	{"irb-prompt-mode",	required_argument, 	0, 2007},
+	{"irb-prompt",		required_argument, 	0, 2007},
+	{"irb-noprompt",	no_argument, 		0, 2008},
+	{"irb-inf-ruby-mode",no_argument, 		0, 2009},
+	{"irb-sample-book-mode",no_argument, 	0, 2010},
+	{"irb-simple-prompt",no_argument, 		0, 2010},
+	{"irb-tracer",		no_argument, 		0, 2011},
+	{"irb-back-trace-limit",required_argument, 0, 2012},
+	{"irb-context-mode",required_argument, 	0, 2013},
+	{"irb-single",		no_argument, 		0, 2014},
+	{"irb-debug",		required_argument, 	0, 2015},
+		
+	{"no-logo",  		no_argument,       	0, 9999},
+	{"debug", 	 		no_argument,       	0, 'd'},
+	{"screen",		  	no_argument,       	0, 's'},
+	{"eval",   			required_argument, 	0, 'e'},
+	
+	{0, 0, 0, 0}
+};
+
+#define codesettings(x) do {orzsb_puts(code_settings, x);} while(0)
+#define codesettingsoptarg(x) do {\
+								char* escaped = addslash(optarg);\
+								orzsb_printf(code_settings, x, escaped);\
+								orzsb_printf(code_settings, "\n");\
+								free(escaped);\
+								break;\
+							  } while(0)
+void
+parseoptions(int argc, char **argv)
 {
 	int c;
-	argv0 = argv[0];
-	code_settings = orzsb_create();
-	orzsb_puts(code_settings, "::IRGSS::TOP_BINDING = binding");
-
-	_wsetlocale(LC_ALL, L"chs");
-	
 	while (1)
  	{
-		static struct option long_options[] =
-		{
-			{"verbose", no_argument,       &flag_verbose, 1},
-			{"brief",   no_argument,       &flag_verbose, 0},
-			
-			{"irb-math",	no_argument, 0, 'm'},
-			{"irb-inspect",	no_argument, 0, 2001},
-			{"irb-noinspect",	no_argument, 0, 2002},
-			{"irb-name",	required_argument, 0, 2003},
-			
-			{"debug",   no_argument,       0, 'd'},
-			{"screen",  no_argument,       0, 's'},
-			{"eval",    required_argument, 0, 'e'},
-			//{"delete",  required_argument, 0, 'd'},
-			//{"create",  required_argument, 0, 'c'},
-			{0, 0, 0, 0}
-		};
-
 		int option_index = 0;
 		
-		c = getopt_long (argc, argv, "sde:m", long_options, &option_index);
+		c = getopt_long (argc, argv, "r:sde:m", long_options, &option_index);
 		
 		if (c == -1)
 			break;
+		
+		
 		
 		switch (c)
 		{
@@ -479,6 +501,7 @@ main (int argc, char **argv)
 
 			case 'd':
 				flag_debug = 1;
+				codesettings("$DEBUG = true");
 				break;
 
 			case 'e':
@@ -493,160 +516,305 @@ main (int argc, char **argv)
 				flag_screen = 1;
 				break;
 			
-			case 'm':	orzsb_puts(code_settings, "(::IRGSS::VAR[:irb_argv] ||=[]) << '-m'"); break;
-			case 2001:	orzsb_puts(code_settings, "(::IRGSS::VAR[:irb_argv] ||=[]) << '--inspect'"); break;
-			case 2002:	orzsb_puts(code_settings, "(::IRGSS::VAR[:irb_argv] ||=[]) << '--noinspect'"); break;
-			case 2003:
-			{
-				char* escaped = addslash(optarg);
-				orzsb_printf(code_settings, "::IRGSS::VAR[:irb_name] = '%s'\n", escaped);
-				free(escaped);
-				break;
-			}
-				
+			case 'r':	codesettingsoptarg("(::IRGSS::VAR[:required]||=[]) << '%s'"); break;
+			
+			case 'm':	codesettings("(::IRGSS::VAR[:irb_conf]||={})[:MATH_MODE] = true"); break;
+			case 2001:	codesettings("(::IRGSS::VAR[:irb_conf]||={})[:INSPECT_MODE] = true"); break;
+			case 2002:	codesettings("(::IRGSS::VAR[:irb_conf]||={})[:INSPECT_MODE] = false"); break;
+			case 2003:	codesettingsoptarg("::IRGSS::VAR[:irb_name] = '%s'"); break;
+			case 2004:	codesettings("(::IRGSS::VAR[:irb_conf]||={})[:ECHO] = true"); break;
+			case 2005:	codesettings("(::IRGSS::VAR[:irb_conf]||={})[:ECHO] = false"); break;
+			case 2006:	codesettings("(::IRGSS::VAR[:irb_conf]||={})[:RC] = false"); break;
+			case 2007:	codesettingsoptarg("(::IRGSS::VAR[:irb_conf]||={})[:PROMPT_MODE] = '%s'.upcase.tr(\"-\", \"_\").intern"); break;
+			case 2008:	codesettings("(::IRGSS::VAR[:irb_conf]||={})[:PROMPT_MODE] = :NULL"); break;
+			case 2009:	codesettings("(::IRGSS::VAR[:irb_conf]||={})[:PROMPT_MODE] = :INF_RUBY"); break;
+			case 2010:	codesettings("(::IRGSS::VAR[:irb_conf]||={})[:PROMPT_MODE] = :SIMPLE"); break;
+			case 2011:	codesettings("(::IRGSS::VAR[:irb_conf]||={})[:USE_TRACER] = true"); break;
+			case 2012:	codesettingsoptarg("(::IRGSS::VAR[:irb_conf]||={})[:BACK_TRACE_LIMIT] = ('%s'.to_i rescue 0)"); break;
+			case 2013:	codesettingsoptarg("(::IRGSS::VAR[:irb_conf]||={})[:CONTEXT_MODE] = ('%s'.to_i rescue 0)"); break;
+			case 2014:	codesettings("(::IRGSS::VAR[:irb_conf]||={})[:SINGLE_IRB] = true"); break;
+			case 2015:	codesettingsoptarg("(::IRGSS::VAR[:irb_conf]||={})[:DEBUG_LEVEL] = ('%s'.to_i rescue 0)"); break;
+			
+			case 9999:	codesettings("::IRGSS::VAR[:no_logo] = true"); break;
+			
 			default:
 				abort();
 		}
 	}
-	
-	orzsb_printf(code_settings, "::IRGSS::VERBOSE = %d\n", flag_verbose);
+}
 
+void
+runrgss(char* libname)
+{
+	HWND hWnd;
+	
+	hrgss = LoadLibraryA(libname);
+	oassert(hrgss, failed to initialize lib);
+	verbose(lib initialized);
+	
+	verbose(looking for RGSSInitialize);
+	frgssInitialize = (RGSSInitialize) GetProcAddress(hrgss, "RGSSInitialize");
+	if (frgssInitialize)
+	{
+		rgssversion = 1;
+		verbose(found RGSS 1);
+		goto foundrgss;
+	}
+	frgssInitialize = (RGSSInitialize) GetProcAddress(hrgss, "RGSSInitialize2");
+	if (frgssInitialize)
+	{
+		rgssversion = 2;
+		verbose(found RGSS 2);
+		goto foundrgss;
+	}
+	frgssInitialize = (RGSSInitialize) GetProcAddress(hrgss, "RGSSInitialize3");
+	if (frgssInitialize)
+	{
+		rgssversion = 3;
+		verbose(found RGSS 3);
+		goto foundrgss;
+	}
+	oassert(frgssInitialize, failed to find RGSSInitialize);
+foundrgss:
+	{
+		char* escaped = addslash(libname);
+		orzsb_printf(code_settings, "::IRGSS::LIBNAME = '%s'\n", escaped);
+		free(escaped);
+	}
+	orzsb_printf(code_settings, "::IRGSS::PLATFORM = 'RGSS%d'\n", rgssversion);
+	codesettings("(::IRGSS::VAR[:irb_conf]||={})[:IRB_NAME] = ::IRGSS::IRBNAME = ::IRGSS::VAR[:irb_name] || File.basename(::IRGSS::LIBNAME, '.dll')");
+
+	verbose(looking for RGSSGameMain);
+	frgssGameMain = (RGSSGameMain) GetProcAddress(hrgss, "RGSSGameMain");
+	oassert(frgssGameMain, failed to find RGSSGameMain);
+	
+	verbose(looking for RGSSEval);
+	frgssEval = (RGSSEval) GetProcAddress(hrgss, "RGSSEval");
+	oassert(frgssEval, failed to find RGSSEval);
+	
+	verbose(calling RGSSInitialize);
+	frgssInitialize(hrgss);
+	
+	verbose(creating game window for RGSS);
+	switch (rgssversion)
+	{
+		case 1:
+			hWnd = creatergsswindow(L"RGSS Player", L"iRGSS1", 640, 480, flag_screen);
+			break;
+		case 2:
+			hWnd = creatergsswindow(L"RGSS2 Player", L"iRGSS2", 544, 416, flag_screen);
+			break;
+		case 3:
+			hWnd = creatergsswindow(L"RGSS3 Player", L"iRGSS3", 544, 416, flag_screen);
+			break;
+		
+	}
+	orzsb_printf(code_settings, "::IRGSS::SCREENHWND = %d\n", hWnd);
+	
+	verbose(setting hook);
+	hookedfiles = orzlist_create();
+	#define sethook(lib, proc) do { \
+		                           hook##proc = apihook_initialize(lib,#proc,(FARPROC)hookf##proc); \
+		                           hookon(##proc); \
+                                  } while(0)
+    sethook(L"kernel32.dll", CreateFileW);
+    sethook(L"kernel32.dll", ReadFile);
+    sethook(L"kernel32.dll", CloseHandle);
+    sethook(L"kernel32.dll", GetFileType);
+    sethook(L"user32.dll", ShowWindow);
+    sethook(L"user32.dll", SetWindowPos);
+    sethook(L"user32.dll", SetForegroundWindow);
+    sethook(L"user32.dll", MessageBoxW);
+    if (rgssversion == 3)
+		sethook(L"gdi32.dll", EnumFontFamiliesExW);
+	
+	verbose(calling RGSSGameMain);
+	if (rgssversion < 2)
+		frgssGameMain(hWnd, ":scripts", "\0\0\0\0");
+	else
+		frgssGameMain(hWnd, ":\0s\0c\0r\0i\0p\0t\0s\0\0", "\0\0\0\0");
+}
+
+char*
+trylib (char* name)
+{
+	char* ret;
+	verbosef("lib: trying %s\n", name);
+	
+	if( exists( name ) ) {
+		ret = calloc(1, strlen(name) + 1);
+		strcpy(ret, name);
+		verbose(lib: ready);
+		return ret;
+	}
+	else
+	{
+		char* path;
+		verbose(lib: cannot find it here, so we are going to search it in $PATH);
+		
+		if (path = findpath(name))
+		{
+			verbosef("lib: found %s\n", path);
+			if( exists( path ) ) {
+				return path;
+			}
+			else
+			{
+				verbose("lib: failed");
+				return 0;
+			}
+		}
+		else
+		{
+			verbose("lib: failed");
+			return 0;
+		}
+	}
+}
+
+void
+decidelib(int argc, char **argv)
+{
+	#define trytrylib(x) do { if (!libname) libname = trylib(x); } while(0)
 	if (optind < argc)
 	{
 		while (optind < argc)
 		{
-			libname = argv[optind++];
-		}
-	}
-	
-	if (!libname)
-		libname = "RGSS300.dll";
-	
-	verbosef("lib = %s\n", libname);
-	
-	if( exists( libname ) ) {
-		verbose(lib is exist);
-	}
-	else
-	{
-		char path[MAX_PATH + 1];
-		verbose(cannot find it here);
-		verbose(searching in PATH);
-		
-		if (findpath(libname, &path, MAX_PATH))
-		{
-			libname = path;
-			verbosef("lib = %s\n", libname);
-			if( exists( libname ) ) {
-				verbose(lib is exist);
+			char* arg = argv[optind++];
+			if (strcmp(arg, ":rgss3") == 0)
+			{
+				verbose(searching for some famous RGSS3 library...);
+				trytrylib("RGSS301.dll");
+				trytrylib("RGSS300.dll");
+			}
+			else if (strcmp(arg, ":rgss2") == 0)
+			{
+				verbose(searching for some famous RGSS2 library...);
+				trytrylib("RGSS202E.dll");
+				trytrylib("RGSS202C.dll");
+				trytrylib("RGSS202J.dll");
+				trytrylib("RGSS201E.dll");
+				trytrylib("RGSS201C.dll");
+				trytrylib("RGSS201J.dll");
+				trytrylib("RGSS200E.dll");
+				trytrylib("RGSS200C.dll");
+				trytrylib("RGSS200J.dll");
+			}
+			else if (strcmp(arg, ":rgss1") == 0)
+			{
+				verbose(searching for some famous RGSS1 library...);
+				trytrylib("RGSS104E.dll");
+				trytrylib("RGSS104C.dll");
+				trytrylib("RGSS104J.dll");
+				trytrylib("RGSS103E.dll");
+				trytrylib("RGSS103C.dll");
+				trytrylib("RGSS103J.dll");
+				trytrylib("RGSS102E.dll");
+				trytrylib("RGSS102C.dll");
+				trytrylib("RGSS102J.dll");
+				trytrylib("RGSS101E.dll");
+				trytrylib("RGSS101C.dll");
+				trytrylib("RGSS101J.dll");
+				trytrylib("RGSS100E.dll");
+				trytrylib("RGSS100C.dll");
+				trytrylib("RGSS100J.dll");
+			}
+			else if (strcmp(arg, ":rgss") == 0)
+			{
+				verbose(searching for some famous RGSS library...);
+				trytrylib("RGSS301.dll");
+				trytrylib("RGSS300.dll");
+				trytrylib("RGSS202E.dll");
+				trytrylib("RGSS202C.dll");
+				trytrylib("RGSS202J.dll");
+				trytrylib("RGSS201E.dll");
+				trytrylib("RGSS201C.dll");
+				trytrylib("RGSS201J.dll");
+				trytrylib("RGSS200E.dll");
+				trytrylib("RGSS200C.dll");
+				trytrylib("RGSS200J.dll");
+				trytrylib("RGSS104E.dll");
+				trytrylib("RGSS104C.dll");
+				trytrylib("RGSS104J.dll");
+				trytrylib("RGSS103E.dll");
+				trytrylib("RGSS103C.dll");
+				trytrylib("RGSS103J.dll");
+				trytrylib("RGSS102E.dll");
+				trytrylib("RGSS102C.dll");
+				trytrylib("RGSS102J.dll");
+				trytrylib("RGSS101E.dll");
+				trytrylib("RGSS101C.dll");
+				trytrylib("RGSS101J.dll");
+				trytrylib("RGSS100E.dll");
+				trytrylib("RGSS100C.dll");
+				trytrylib("RGSS100J.dll");
 			}
 			else
 			{
-				libname = 0;
+				libname = trylib(arg);
 			}
+			if (libname) break;
 		}
-		else
-		{
-			libname = 0;
-		}
-		
-		if (!libname)
-		{
-			error(lib not found);
-			exit(1);
-		}
+	}
+	else
+	{
+		verbose(no library is given);
+		verbose(searching for some famous library...);
+		trytrylib("RGSS301.dll");
+		trytrylib("RGSS300.dll");
+		trytrylib("RGSS202E.dll");
+		trytrylib("RGSS202C.dll");
+		trytrylib("RGSS202J.dll");
+		trytrylib("RGSS201E.dll");
+		trytrylib("RGSS201C.dll");
+		trytrylib("RGSS201J.dll");
+		trytrylib("RGSS200E.dll");
+		trytrylib("RGSS200C.dll");
+		trytrylib("RGSS200J.dll");
+		trytrylib("RGSS104E.dll");
+		trytrylib("RGSS104C.dll");
+		trytrylib("RGSS104J.dll");
+		trytrylib("RGSS103E.dll");
+		trytrylib("RGSS103C.dll");
+		trytrylib("RGSS103J.dll");
+		trytrylib("RGSS102E.dll");
+		trytrylib("RGSS102C.dll");
+		trytrylib("RGSS102J.dll");
+		trytrylib("RGSS101E.dll");
+		trytrylib("RGSS101C.dll");
+		trytrylib("RGSS101J.dll");
+		trytrylib("RGSS100E.dll");
+		trytrylib("RGSS100C.dll");
+		trytrylib("RGSS100J.dll");
+	}
+}
+int
+main (int argc, char **argv)
+{
+	_wsetlocale(LC_ALL, L"chs");
+	
+	argv0 = argv[0];
+	rgssinit = FALSE;
+	code_settings = orzsb_create();
+	codesettings("::IRGSS::TOP_BINDING = binding");
+	
+	/// parsing options
+	parseoptions(argc, argv);
+	
+	orzsb_printf(code_settings, "::IRGSS::VERBOSE = %d\n", flag_verbose);
+	if (flag_verbose)
+		codesettings("(::IRGSS::VAR[:irb_conf]||={})[:VERBOSE] = true");
+	
+	libname = 0;
+	decidelib(argc, argv);
+	if (!libname)
+	{
+		error(lib: no valid library is found... exiting...);
+		error(help: try `irgss /?` for help);
+		exit(1);
 	}
 	
-	{
-		HWND hWnd;
-		
-		hrgss = LoadLibraryA(libname);
-		oassert(hrgss, failed to initialize lib);
-		verbose(lib initialized);
-		
-		verbose(looking for RGSSInitialize);
-		frgssInitialize = (RGSSInitialize) GetProcAddress(hrgss, "RGSSInitialize");
-		if (frgssInitialize)
-		{
-			rgssversion = 1;
-			verbose(found RGSS 1);
-			goto foundrgss;
-		}
-		frgssInitialize = (RGSSInitialize) GetProcAddress(hrgss, "RGSSInitialize2");
-		if (frgssInitialize)
-		{
-			rgssversion = 2;
-			verbose(found RGSS 2);
-			goto foundrgss;
-		}
-		frgssInitialize = (RGSSInitialize) GetProcAddress(hrgss, "RGSSInitialize3");
-		if (frgssInitialize)
-		{
-			rgssversion = 3;
-			verbose(found RGSS 3);
-			goto foundrgss;
-		}
-		oassert(frgssInitialize, failed to find RGSSInitialize);
-foundrgss:
-		{
-			char* escaped = addslash(libname);
-			orzsb_printf(code_settings, "::IRGSS::LIBNAME = '%s'\n", escaped);
-			free(escaped);
-		}
-		orzsb_printf(code_settings, "::IRGSS::PLATFORM = 'RGSS%d'\n", rgssversion);
-		orzsb_puts(code_settings, "::IRGSS::IRBNAME = ::IRGSS::VAR[:irb_name] || File.basename(::IRGSS::LIBNAME, '.dll')");
-
-		verbose(looking for RGSSGameMain);
-		frgssGameMain = (RGSSGameMain) GetProcAddress(hrgss, "RGSSGameMain");
-		oassert(frgssGameMain, failed to find RGSSGameMain);
-		
-		verbose(looking for RGSSEval);
-		frgssEval = (RGSSEval) GetProcAddress(hrgss, "RGSSEval");
-		oassert(frgssEval, failed to find RGSSEval);
-		
-		verbose(calling RGSSInitialize);
-		frgssInitialize(hrgss);
-		
-		verbose(creating game window for RGSS);
-		switch (rgssversion)
-		{
-			case 1:
-				hWnd = creatergsswindow(L"RGSS Player", L"iRGSS1", 640, 480, flag_screen);
-				break;
-			case 2:
-				hWnd = creatergsswindow(L"RGSS2 Player", L"iRGSS2", 544, 416, flag_screen);
-				break;
-			case 3:
-				hWnd = creatergsswindow(L"RGSS3 Player", L"iRGSS3", 544, 416, flag_screen);
-				break;
-			
-		}
-		
-		verbose(setting hook);
-		hookedfiles = orzlist_create();
-		#define sethook(lib, proc) do { \
-			                           hook##proc = apihook_initialize(lib,#proc,(FARPROC)hookf##proc); \
-			                           hookon(##proc); \
-                                      } while(0)
-        sethook(L"kernel32.dll", CreateFileW);
-        sethook(L"kernel32.dll", ReadFile);
-        sethook(L"kernel32.dll", CloseHandle);
-        sethook(L"kernel32.dll", GetFileType);
-        sethook(L"user32.dll", ShowWindow);
-        sethook(L"user32.dll", SetWindowPos);
-        sethook(L"user32.dll", SetForegroundWindow);
-        sethook(L"user32.dll", MessageBoxW);
-        if (rgssversion == 3)
-			sethook(L"gdi32.dll", EnumFontFamiliesExW);
-		
-		verbose(calling RGSSGameMain);
-		if (rgssversion < 2)
-			frgssGameMain(hWnd, ":scripts", "\0\0\0\0");
-		else
-			frgssGameMain(hWnd, ":\0s\0c\0r\0i\0p\0t\0s\0\0", "\0\0\0\0");
-
-	}
-	//{char* j;gets(&j);}
+	runrgss(libname);
 	
 	exit (0);
 }
