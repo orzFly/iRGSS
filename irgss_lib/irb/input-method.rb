@@ -74,22 +74,22 @@ module IRB
     end
 
     def gets
-      print @prompt
+#      print @prompt
       l = @io.gets
-#      print @prompt, l
+      print @prompt
       l
     end
   end
   
-  class IRGSSInputMethod < InputMethod
-    def initialize(file)
-      super
+  class StringInputMethod < FileInputMethod
+    def initialize(filename, string)
       @pos = 0
-      @lines = ::IRGSS::LIB[file].unpack('m')[0]
+      @lines = string.split(/\r\n|\r|\n/).map{|i|i<<"\n"}
+      @filename = filename
     end
     
     def file_name
-      ":irgss_lib/#{file}"
+      @filename
     end
 
     def eof?
@@ -97,11 +97,21 @@ module IRB
     end
 
     def gets
-      print @prompt
       l = @lines[@pos]
       @pos += 1
-#      print @prompt, l
+      print @prompt
       l
+    end
+    
+    def line(line_no)
+      @lines[line_no]
+    end
+  end
+
+  
+  class IRGSSInputMethod < StringInputMethod
+    def initialize(file)
+      super(":irgss_lib/#{file}", ::IRGSS::LIB[file].unpack('m')[0])
     end
   end
 

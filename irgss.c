@@ -16,12 +16,12 @@ static int rgssversion;
 static int rgssinit;
 static char* libname;
 static orzsb* code_settings;
-static orzsb* code_eval;
 
 static int flag_verbose;
 static int flag_debug;
-static char* flag_eval;
 static int flag_screen;
+static int flag_rc;
+static char* flag_rcname;
 
 static apihook hookCreateFileW;
 static apihook hookReadFile;
@@ -437,12 +437,19 @@ DWORD
 	return ret;
 }
 
+static const char* short_options = "abir:e:f:sdmc:C";
 static struct option long_options[] =
 {
 	{"verbose", no_argument,       &flag_verbose, 1},
 	{"brief",   no_argument,       &flag_verbose, 0},
 	
 	{"require",			required_argument, 	0, 'r'},
+	{"eval",			required_argument, 	0, 'e'},
+	{"file",			required_argument, 	0, 'f'},
+	
+	{"inspect",			no_argument,		0, 'i'},
+	{"benchmark",		no_argument,		0, 'b'},
+	{"batch",			no_argument,		0, 'a'},
 	
 	{"irb-math",		no_argument, 		0, 'm'},
 	{"irb-inspect",		no_argument, 		0, 2001},
@@ -462,11 +469,14 @@ static struct option long_options[] =
 	{"irb-context-mode",required_argument, 	0, 2013},
 	{"irb-single",		no_argument, 		0, 2014},
 	{"irb-debug",		required_argument, 	0, 2015},
-		
+	
+	{"logo",  			no_argument,       	0, 9998},
 	{"no-logo",  		no_argument,       	0, 9999},
 	{"debug", 	 		no_argument,       	0, 'd'},
 	{"screen",		  	no_argument,       	0, 's'},
-	{"eval",   			required_argument, 	0, 'e'},
+	
+	{"rc",				required_argument, 	0, 'c'},
+	{"no-rc",			no_argument, 		0, 'C'},
 	
 	{0, 0, 0, 0}
 };
@@ -483,40 +493,41 @@ void
 parseoptions(int argc, char **argv)
 {
 	int c;
+	
 	while (1)
  	{
 		int option_index = 0;
 		
-		c = getopt_long (argc, argv, "r:sde:m", long_options, &option_index);
+		c = getopt_long (argc, argv, short_options, long_options, &option_index);
 		
 		if (c == -1)
 			break;
 		
-		
-		
 		switch (c)
 		{
+			case 'C':
+			case 'c':
 			case 0:
 				break;
 
 			case 'd':
 				flag_debug = 1;
 				codesettings("$DEBUG = true");
-				break;
-
-			case 'e':
-				flag_eval = optarg;
-				break;
-
-			case '?':
-				/* getopt_long already printed an error message. */
+				if (rgssversion >= 2)
+					codesettings("$TEST = true");
 				break;
 
 			case 's':
 				flag_screen = 1;
 				break;
 			
+			case 'e':	codesettingsoptarg("::IRGSS::VAR[:file]=nil; (::IRGSS::VAR[:eval]||=[]) << '%s'"); break;
+			case 'f':	codesettingsoptarg("::IRGSS::VAR[:eval]=nil; ::IRGSS::VAR[:file] = '%s'"); break;
 			case 'r':	codesettingsoptarg("(::IRGSS::VAR[:required]||=[]) << '%s'"); break;
+			
+			case 'a':	/* todo */ break;
+			case 'b':	codesettings("::IRGSS::VAR[:mode] = :benchmark"); break;
+			case 'i':	codesettings("::IRGSS::VAR[:mode] = :inspect"); break;
 			
 			case 'm':	codesettings("(::IRGSS::VAR[:irb_conf]||={})[:MATH_MODE] = true"); break;
 			case 2001:	codesettings("(::IRGSS::VAR[:irb_conf]||={})[:INSPECT_MODE] = true"); break;
@@ -535,7 +546,8 @@ parseoptions(int argc, char **argv)
 			case 2014:	codesettings("(::IRGSS::VAR[:irb_conf]||={})[:SINGLE_IRB] = true"); break;
 			case 2015:	codesettingsoptarg("(::IRGSS::VAR[:irb_conf]||={})[:DEBUG_LEVEL] = ('%s'.to_i rescue 0)"); break;
 			
-			case 9999:	codesettings("::IRGSS::VAR[:no_logo] = true"); break;
+			case 9998:	codesettings("::IRGSS::VAR[:no_logo] = nil; ::IRGSS::VAR[:logo] = true"); break;
+			case 9999:	codesettings("::IRGSS::VAR[:no_logo] = true; ::IRGSS::VAR[:logo] = nil"); break;
 			
 			default:
 				abort();
@@ -660,13 +672,13 @@ trylib (char* name)
 			}
 			else
 			{
-				verbose("lib: failed");
+				verbose(lib: failed);
 				return 0;
 			}
 		}
 		else
 		{
-			verbose("lib: failed");
+			verbose(lib: failed);
 			return 0;
 		}
 	}
@@ -676,6 +688,7 @@ void
 decidelib(int argc, char **argv)
 {
 	#define trytrylib(x) do { if (!libname) libname = trylib(x); } while(0)
+	libname = 0;
 	if (optind < argc)
 	{
 		while (optind < argc)
@@ -788,6 +801,125 @@ decidelib(int argc, char **argv)
 		trytrylib("RGSS100J.dll");
 	}
 }
+
+char*
+fgetline(FILE* fp)
+{
+	orzsb* sb = orzsb_create();
+	char line[1025];
+	char* ret;
+	char* p;
+	do
+	{
+		fgets(line, 1025, fp);
+		orzsb_print(sb, line);
+	}
+	while(strchr(line, '\n') == NULL && !feof(fp));
+	
+	ret = orzsb_build(sb);
+	
+	if ((p = strchr(ret, '\n')) != NULL)
+		*p = '\0';
+	
+	orzsb_clean(sb);
+	free(sb);
+	
+	return ret;
+}
+
+int
+tryrc(char* fname)
+{
+	verbosef("rc: trying: %s\n", fname);
+	if(exists(fname))
+	{
+		char* fakeargv[3];
+		FILE *fp = fopen(fname, "r");
+		fakeargv[0] = argv0;
+		while(!feof(fp))
+		{
+			char* line = fgetline(fp);
+			char* p;
+			verbosef("rc: hit %s\n", line);
+			
+			optarg = 0;
+			optind = 0;
+			opterr = 1;
+			fakeargv[1] = line;
+			
+			if ((p = strchr(line, ' ')) != NULL)
+			{
+				*p = '\0';
+				fakeargv[2] = p + 1;
+				parseoptions(3, fakeargv);
+			}
+			else
+			{
+				parseoptions(2, fakeargv);
+			}
+			// free(line); 
+			// don't free cause getopts will save pointer to argv
+		}
+		fclose(fp);
+		verbose(rc: done);
+		return 0;
+	}
+	return 1;
+}
+
+void
+decidearg(int argc, char **argv)
+{
+	opterr = 0;
+	while (1)
+ 	{
+ 		int c;
+		int option_index = 0;
+		
+		c = getopt_long (argc, argv, short_options, long_options, &option_index);
+		
+		if (c == -1)
+			break;
+		
+		if (c == 'c')
+			flag_rcname = optarg;
+		
+		if (c == 'C')
+			flag_rc = 1;
+	}
+	
+	if (flag_rc != 1)
+	{
+		if (flag_rcname)
+		{
+			verbose(rc: `-c` given);
+			if(tryrc(flag_rcname) != 0)
+			{
+				error(rc: given rc not found);
+				exit(1);
+			}
+		}
+		else
+		{
+			verbose(rc: searching for famous rc);
+			do
+			{
+				if(tryrc(".irgssrc") == 0) break;
+				if(tryrc("irgssrc") == 0) break;
+			}while(0);
+		}
+	}
+	
+	optarg = 0;
+	optind = 0;
+	opterr = 1;
+	parseoptions(argc, argv);
+	
+	orzsb_printf(code_settings, "::IRGSS::VERBOSE = %d\n", flag_verbose);
+	if (flag_verbose)
+		codesettings("(::IRGSS::VAR[:irb_conf]||={})[:VERBOSE] = true");
+}
+
 int
 main (int argc, char **argv)
 {
@@ -795,22 +927,18 @@ main (int argc, char **argv)
 	
 	argv0 = argv[0];
 	rgssinit = FALSE;
+	flag_rc = 0;
+	flag_rcname = 0;
 	code_settings = orzsb_create();
 	codesettings("::IRGSS::TOP_BINDING = binding");
 	
-	/// parsing options
-	parseoptions(argc, argv);
-	
-	orzsb_printf(code_settings, "::IRGSS::VERBOSE = %d\n", flag_verbose);
-	if (flag_verbose)
-		codesettings("(::IRGSS::VAR[:irb_conf]||={})[:VERBOSE] = true");
-	
-	libname = 0;
+	decidearg(argc, argv);
 	decidelib(argc, argv);
+	
 	if (!libname)
 	{
 		error(lib: no valid library is found... exiting...);
-		error(help: try `irgss /?` for help);
+		error(help: try `irgss --help` for futher information);
 		exit(1);
 	}
 	

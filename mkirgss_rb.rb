@@ -24,9 +24,10 @@ class << ::IRGSS
   def verbose j
     puts "irgss: rgss: " << j if IRGSS::VERBOSE == 1
   end
-  def exception_inspect e
-    puts $!
-    puts $!.backtrace
+  
+  def error j
+    STDERR.puts("irgss: rgss: " << j)
+    exit
   end
 end
 

@@ -53,16 +53,16 @@ Define $DEBUG.
 
 ### Mode Options
 #### -i, --inspect
-Need `-e` or `-f`. Scripts will be passed to IRB.
+Need `-e` or `-f`. Scripts will be passed to IRB. Omit `-b`.
 
 #### -b, --benchmark
-Need `-e` or `-f`. Scripts will be wrapped in the following code: 
+Need `-e` or `-f`. Scripts will be wrapped in the following code. Omit `-i`. 
 ```ruby
 require 'benchmark'
 Benchmark.bm(10) do |benchmark|
-  benchmark.report(IRGSS.IRBNAME) {
+  benchmark.report((::IRGSS::VAR[:irb_conf]||={})[:IRB_NAME]) do
     # scripts go here
-  }
+  end
 end
 ```
 
@@ -182,6 +182,7 @@ Omit `--disable-registry-hook`.
 #### -v, --verbose
 Turn on debug messages. 
 
+#### --logo
 #### --no-logo
 
 #### -c `fname`, --rc `fname`
