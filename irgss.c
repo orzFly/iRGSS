@@ -906,6 +906,12 @@ decidearg(int argc, char **argv)
 			{
 				if(tryrc(".irgssrc") == 0) break;
 				if(tryrc("irgssrc") == 0) break;
+				/* TODO:
+				* `$HOME/.irgssrc`
+				* `$HOME/irgssrc`
+				* `$USERPROFILE/.irgssrc`
+				* `$USERPROFILE/irgssrc`
+				*/
 			}while(0);
 		}
 	}
