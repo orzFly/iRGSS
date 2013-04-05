@@ -1,0 +1,326 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <title>iRGSS by orzFly</title>
+
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+    <script src="javascripts/scale.fix.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="wrapper">
+      <header>
+        <h1>iRGSS</h1>
+        <p>Interactive RGSS</p>
+        <p class="view"><a href="https://github.com/orzFly/iRGSS">View the Project on GitHub <small>orzFly/iRGSS</small></a></p>
+        <ul>
+          <li><a href="https://github.com/orzFly/iRGSS/zipball/master">Download <strong>ZIP File</strong></a></li>
+          <li><a href="https://github.com/orzFly/iRGSS/tarball/master">Download <strong>TAR Ball</strong></a></li>
+          <li><a href="https://github.com/orzFly/iRGSS">View On <strong>GitHub</strong></a></li>
+        </ul>
+      </header>
+      <section>
+        <h1>iRGSS (Interactive RGSS)</h1>
+
+<p>iRGSS is an interactive ruby which uses RGSS**????**.dll instead of ruby*****.dll</p>
+
+<h2>Compiling</h2>
+
+<h3>Requirements</h3>
+
+<ul>
+<li>Microsoft Windows SDK 5.0+</li>
+<li>(cl) Microsoft 32-bit C/C++ Optimizing Compiler Version 15.00.30729.01 for 80x86</li>
+<li>(link) Microsoft Incremental Linker Version 9.00.30729.01</li>
+<li>(nmake) Microsoft Program Maintenance Utility Version 9.00.30729.01</li>
+<li>(ruby) ruby 1.8.7 (2011-06-30 patchlevel 352) [i386-mingw32]</li>
+</ul><h3>Building</h3>
+
+<div class="highlight"><pre>cmd<span class="p">&gt;</span> <span class="n">doskey</span> make<span class="o">=</span>nmake $*
+cmd<span class="p">&gt;</span> <span class="n">git</span> clone https:<span class="n">//github.com/orzFly/iRGSS.git</span> irgss
+cmd<span class="p">&gt;</span> <span class="n">cd</span> irgss
+cmd<span class="p">&gt;</span> <span class="n">make</span>
+cmd<span class="p">&gt;</span> <span class="n">make</span> test
+</pre></div>
+
+<h2>Usage</h2>
+
+<pre lang="shell"><code>irgss [options] [-] [library names]
+</code></pre>
+
+<ul>
+<li>
+<code>options</code> stand for any combination of the following options</li>
+<li>Only one library name is allowed without <code>-a</code>
+</li>
+<li>
+<code>library name</code> can be one of the following
+
+<ul>
+<li><code>:rgss</code></li>
+<li><code>:rgss1</code></li>
+<li><code>:rgss2</code></li>
+<li><code>:rgss3</code></li>
+</ul>
+</li>
+</ul><h2>Options</h2>
+
+<h3>Core Options</h3>
+
+<h4>-r <code>library</code>, --require <code>library</code>
+</h4>
+
+<p>Require <code>library</code>, before executing your script</p>
+
+<h4>-e <code>script</code>, --eval <code>script</code>
+</h4>
+
+<p>One line of script. Several <code>-e</code>'s allowed. Omit <code>-f</code>.</p>
+
+<h4>-f <code>script_fname</code>, --file <code>script_fname</code>
+</h4>
+
+<p>Load a file as your script. Only one allowed. Omit <code>-e</code>.</p>
+
+<h4>-d, --debug</h4>
+
+<p>Define $DEBUG.</p>
+
+<h3>Mode Options</h3>
+
+<h4>-i, --inspect</h4>
+
+<p>Need <code>-e</code> or <code>-f</code>. Scripts will be passed to IRB. Omit <code>-b</code>.</p>
+
+<h4>-b, --benchmark</h4>
+
+<p>Need <code>-e</code> or <code>-f</code>. Scripts will be wrapped in the following code. Omit <code>-i</code>. </p>
+
+<div class="highlight"><pre><span class="nb">require</span> <span class="s1">'benchmark'</span>
+<span class="no">Benchmark</span><span class="o">.</span><span class="n">bm</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span> <span class="k">do</span> <span class="o">|</span><span class="n">benchmark</span><span class="o">|</span>
+  <span class="n">benchmark</span><span class="o">.</span><span class="n">report</span><span class="p">((</span><span class="o">::</span><span class="ss">IRGSS</span><span class="p">:</span><span class="ss">:VAR</span><span class="o">[</span><span class="ss">:irb_conf</span><span class="o">]||=</span><span class="p">{})</span><span class="o">[</span><span class="ss">:IRB_NAME</span><span class="o">]</span><span class="p">)</span> <span class="k">do</span>
+    <span class="c1"># scripts go here</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+</pre></div>
+
+<h4>-a, --batch</h4>
+
+<p>Take all libraries into consideration. So iRGSS will spawn itself for each library.</p>
+
+<p>However, without <code>-a</code>, iRGSS will only take the first valid library.</p>
+
+<h3>Screen Options</h3>
+
+<h4>-s, --screen</h4>
+
+<p>Show RGSS screen at startup as you can use <code>IRGSS.screen.show</code> in your script later.</p>
+
+<h4>--screen-x <code>value-in-pixel</code>
+</h4>
+
+<h4>--screen-y <code>value-in-pixel</code>
+</h4>
+
+<h4>--screen-width <code>value-in-pixel</code>
+</h4>
+
+<h4>--screen-height <code>value-in-pixel</code>
+</h4>
+
+<p>Specify the size and the location of the screen. You can use <code>IRGSS.screen</code> to play with your sweet RGSS screen in your script. Omit <code>--disable-window-hook</code>.</p>
+
+<h4>--screen-no-border</h4>
+
+<h4>--screen-opacity <code>integer-from-0-to-255</code>
+</h4>
+
+<h4>--allow-settings-dialog</h4>
+
+<p>Omit <code>--disable-screen-wndproc</code></p>
+
+<h4>--allow-fullscreen</h4>
+
+<p>Omit <code>--disable-screen-wndproc</code></p>
+
+<h4>--disable-background-running</h4>
+
+<p>Omit <code>--disable-screen-wndproc</code></p>
+
+<h4>--hide-fps</h4>
+
+<h3>IRB Settings</h3>
+
+<h4>-m, --irb-math</h4>
+
+<p>Bc mode (load mathn, fraction or matrix are available)</p>
+
+<h4>--irb-norc</h4>
+
+<p>Suppress read of <code>~/.irbrc</code></p>
+
+<h4>--irb-name <code>name</code>
+</h4>
+
+<p>Specify <code>IRGSS.IRBNAME</code>, which is passed to IRB. </p>
+
+<h4>--irb-inspect</h4>
+
+<p>Use `inspect' for output (default except for bc mode)</p>
+
+<h4>--irb-noinspect</h4>
+
+<p>Don't use inspect for output</p>
+
+<h4>--irb-echo</h4>
+
+<h4>--irb-noecho</h4>
+
+<h4>--irb-prompt <code>prompt-mode</code>, --irb-prompt-mode <code>prompt-mode</code>
+</h4>
+
+<p>Switch prompt mode. Pre-defined prompt modes are</p>
+
+<ul>
+<li>default</li>
+<li>simple</li>
+<li>xmp</li>
+<li>inf-ruby</li>
+</ul><h4>--irb-inf-ruby-mode</h4>
+
+<p>Use prompt appropriate for inf-ruby-mode on emacs. </p>
+
+<h4>--irb-sample-book-mode, --irb-simple-prompt</h4>
+
+<p>Simple prompt mode</p>
+
+<h4>--irb-noprompt</h4>
+
+<p>No prompt mode</p>
+
+<h4>--irb-tracer</h4>
+
+<p>Display trace for each execution of commands.</p>
+
+<h4>--irb-back-trace-limit <code>n</code>
+</h4>
+
+<p>Display backtrace top n and tail n. The default value is 16.</p>
+
+<h4>--irb-context-mode <code>n</code>
+</h4>
+
+<h4>--irb-single</h4>
+
+<h4>--irb-debug <code>n</code>
+</h4>
+
+<p>Set internal debug level to n (not for popular use)</p>
+
+<h3>RGSS Settings</h3>
+
+<h4>--enable-bgm</h4>
+
+<h4>--disable-bgm</h4>
+
+<p>Omit <code>--disable-registry-hook</code>. </p>
+
+<h4>--enable-se</h4>
+
+<h4>--disable-se</h4>
+
+<p>Omit <code>--disable-registry-hook</code>. </p>
+
+<h4>--enable-vsync</h4>
+
+<h4>--disable-vsync</h4>
+
+<p>Omit <code>--disable-registry-hook</code>. </p>
+
+<h4>--keymap-default</h4>
+
+<p>Omit <code>--disable-registry-hook</code>. </p>
+
+<h4>--keymap <code>keymap_string</code>
+</h4>
+
+<p>Omit <code>--disable-registry-hook</code>. </p>
+
+<h4>--rtp</h4>
+
+<p>Omit <code>--disable-registry-hook</code>. </p>
+
+<h4>--load-rtp <code>name=path</code>
+</h4>
+
+<p>Omit <code>--disable-registry-hook</code>. </p>
+
+<h4>--title <code>title_string</code>
+</h4>
+
+<h3>Hooking Options</h3>
+
+<h4>--disable-message-box-hook</h4>
+
+<h4>--disable-window-hook</h4>
+
+<h4>--disable-font-hook</h4>
+
+<h4>--disable-registry-hook</h4>
+
+<h4>--disable-screen-wndproc</h4>
+
+<h4>--disable-audio-fallback</h4>
+
+<h3>Other Options</h3>
+
+<h4>-v, --verbose</h4>
+
+<p>Turn on debug messages. </p>
+
+<h4>--logo</h4>
+
+<h4>--no-logo</h4>
+
+<h4>-c <code>fname</code>, --rc <code>fname</code>
+</h4>
+
+<p>By default, IRGSS will parse <code>.irgssrc</code> for options before parsing the command line. IRGSS will find this file at following paths. If any of above hit, IRGSS will load it and stop finding.</p>
+
+<ul>
+<li><code>./.irgssrc</code></li>
+<li><code>./irgssrc</code></li>
+<li><code>$HOME/.irgssrc</code></li>
+<li><code>$HOME/irgssrc</code></li>
+<li><code>$USERPROFILE/.irgssrc</code></li>
+<li><code>$USERPROFILE/irgssrc</code></li>
+</ul><p><code>.irgssrc</code> shares the same options with command lines. However, every options should be separated with <code>\r</code> or <code>\n</code>, but spaces.</p>
+
+<h4>-C, --no-rc</h4>
+
+<p>Suppress read of any <code>.irgssrc</code> and omit <code>-c</code>.</p>
+
+<h4>-v, --version</h4>
+
+<p>Print the version of IRGSS</p>
+
+<h4>-?, --help</h4>
+
+<p>Print this documentation.</p>
+      </section>
+    </div>
+    <footer>
+      <p>Project maintained by <a href="https://github.com/orzFly">orzFly</a></p>
+      <p>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></p>
+    </footer>
+    <!--[if !IE]><script>fixScale(document);</script><![endif]-->
+    
+  </body>
+</html>
